@@ -187,14 +187,14 @@ void IdctEuclideanLossLayer<Dtype>::Reshape(
 }
 
 template <typename Dtype>
-void IdctEuclideanLossLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
+void IdctEuclideanLossLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     const vector<Blob<Dtype>*>& top) {
   int count = bottom[0]->count();
 
   const int block_size = 64;
   const int example_size = block_size * 9;
-  const Dtype* c_coeffs0 = bottom[0]->cpu_data();
-  const Dtype* c_coeffs1 = bottom[1]->cpu_data();
+  const Dtype* c_coeffs0 = bottom[0]->gpu_data();
+  const Dtype* c_coeffs1 = bottom[1]->gpu_data();
 
   // compute the 2d idct
   Dtype all_pixels0[count];
@@ -215,18 +215,20 @@ void IdctEuclideanLossLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bott
       computeIdct2(c_local_coeffs1, local_pixels1);
     }
   }
-  caffe_sub(
+  LOG(ERROR) << "Using GPU veersion of backprop";
+  caffe_gpu_sub(
       count,
       all_pixels0,
       all_pixels1,
-      diff_.mutable_cpu_data());
-  Dtype dot = caffe_cpu_dot(count, diff_.cpu_data(), diff_.cpu_data());
+      diff_.mutable_gpu_data());
+  Dtype dot;
+  caffe_gpu_dot(count, diff_.gpu_data(), diff_.gpu_data(), &dot);
   Dtype loss = dot / bottom[0]->num() / Dtype(2);
   top[0]->mutable_cpu_data()[0] = loss;
 }
 
 template <typename Dtype>
-void IdctEuclideanLossLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
+void IdctEuclideanLossLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
     const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom) {
   for (int i = 0; i < 2; ++i) {
     if (propagate_down[i]) {
@@ -239,9 +241,9 @@ void IdctEuclideanLossLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top
       for (int j = 0; j < N; ++j) {
         // compute dE/dI * dI/dy for each example in the batch
         for (int k = 0; k < 9; ++k) {
-          const Dtype* diff = diff_.cpu_data() + j*example_size + k*block_size;
-          Dtype* result = bottom[i]->mutable_cpu_diff() + j*example_size + k*block_size;
-          caffe_cpu_gemm<Dtype>(CblasNoTrans, CblasNoTrans, 1, 64, 64,
+          const Dtype* diff = diff_.gpu_data() + j*example_size + k*block_size;
+          Dtype* result = bottom[i]->mutable_gpu_diff() + j*example_size + k*block_size;
+          caffe_gpu_gemm<Dtype>(CblasNoTrans, CblasNoTrans, 1, 64, 64,
                                 alpha, diff, idct_derivs, 0., result);
         }
        }
@@ -249,11 +251,6 @@ void IdctEuclideanLossLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top
   }
 }
 
-#ifdef CPU_ONLY
-STUB_GPU(IdctEuclideanLossLayer);
-#endif
-
-INSTANTIATE_CLASS(IdctEuclideanLossLayer);
-REGISTER_LAYER_CLASS(IdctEuclideanLoss);
+INSTANTIATE_LAYER_GPU_FUNCS(IdctEuclideanLossLayer);
 
 }  // namespace caffe
