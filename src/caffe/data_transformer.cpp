@@ -11,86 +11,6 @@
 namespace caffe {
 
 template<typename Dtype>
-void DataTransformer<Dtype>::GetMeanStddev(std::vector<float>* per_datum_means,
-                                         std::vector<float>* per_datum_stddevs,
-                                         int channels,
-                                         int height,
-                                         int width,
-                                         int h_off,
-                                         int w_off,
-                                         const string& data) {
-  // mean
-  Dtype datum_element;
-  int N = width * height;
-  int data_index;
-  for (int c = 0; c < channels; ++c) {
-    for (int h = 0; h < height; ++h) {
-      for (int w = 0; w < width; ++w) {
-        data_index = (c * height + h_off + h) * width + w_off + w;
-        datum_element =
-          static_cast<Dtype>(static_cast<uint8_t>(data[data_index]));
-        per_datum_means->at(c) += 1.f * datum_element / N;
-      }
-    }
-  }
-  // stddev
-  for (int c = 0; c < channels; ++c) {
-    for (int h = 0; h < height; ++h) {
-      for (int w = 0; w < width; ++w) {
-        data_index = (c * height + h_off + h) * width + w_off + w;
-        datum_element =
-          static_cast<Dtype>(static_cast<uint8_t>(data[data_index]));
-        per_datum_stddevs->at(c) += 1.f *
-          (datum_element - per_datum_means->at(c)) *
-          (datum_element - per_datum_means->at(c)) / (N - 1);
-      }
-    }
-  }
-  for (int c = 0; c < channels; ++c) {
-    per_datum_stddevs->at(c) = sqrt(per_datum_stddevs->at(c));
-  }
-}
-
-template<typename Dtype>
-void DataTransformer<Dtype>::GetMeanStddev(std::vector<float>* per_image_means,
-                                         std::vector<float>* per_image_stddevs,
-                                         int channels,
-                                         int height,
-                                         int width,
-                                         int h_off,
-                                         int w_off,
-                                         const cv::Mat& img) {
-  int N = width * height;
-  // compute mean and stddev for this image
-  for (int h = 0; h < height; ++h) {
-    const uchar* ptr = img.ptr<uchar>(h);
-    int img_index = 0;
-    for (int w = 0; w < width; ++w) {
-      for (int c = 0; c < channels; ++c) {
-        Dtype pixel = static_cast<Dtype>(ptr[img_index++]);
-        per_image_means->at(c) += 1.f * pixel / N;
-      }
-    }
-  }
-  // stddev
-  for (int h = 0; h < height; ++h) {
-    const uchar* ptr = img.ptr<uchar>(h);
-    int img_index = 0;
-    for (int w = 0; w < width; ++w) {
-      for (int c = 0; c < channels; ++c) {
-        Dtype pixel = static_cast<Dtype>(ptr[img_index++]);
-        per_image_stddevs->at(c) +=
-          1.f * (pixel - per_image_means->at(c)) *
-                (pixel - per_image_means->at(c)) / (N - 1);
-      }
-    }
-  }
-  for (int c = 0; c < channels; ++c) {
-    per_image_stddevs->at(c) = sqrt(per_image_stddevs->at(c));
-  }
-}
-
-template<typename Dtype>
 DataTransformer<Dtype>::DataTransformer(const TransformationParameter& param,
     Phase phase)
     : param_(param), phase_(phase) {
@@ -98,10 +18,7 @@ DataTransformer<Dtype>::DataTransformer(const TransformationParameter& param,
   if (param_.has_mean_file()) {
     CHECK_EQ(param_.mean_value_size(), 0) <<
       "Cannot specify mean_file and mean_value at the same time";
-    CHECK(param_.has_mean_stddev() == false) <<
-      "Cannot specify mean_file and mean_stddev at the same time";
     const string& mean_file = param.mean_file();
-    LOG(INFO) << "Loading mean file from: " << mean_file;
     BlobProto blob_proto;
     ReadProtoFromBinaryFileOrDie(mean_file.c_str(), &blob_proto);
     data_mean_.FromProto(blob_proto);
@@ -110,19 +27,9 @@ DataTransformer<Dtype>::DataTransformer(const TransformationParameter& param,
   if (param_.mean_value_size() > 0) {
     CHECK(param_.has_mean_file() == false) <<
       "Cannot specify mean_file and mean_value at the same time";
-    CHECK(param_.has_mean_stddev() == false) <<
-      "Cannot specify mean_file and mean_stddev at the same time";
     for (int c = 0; c < param_.mean_value_size(); ++c) {
       mean_values_.push_back(param_.mean_value(c));
     }
-  }
-  // check if we want to use mean_sttdev
-  if (param_.has_mean_stddev()) {
-    CHECK_EQ(param_.mean_value_size(), 0) <<
-      "Cannot specify mean_file and mean_value at the same time";
-    CHECK(param_.has_mean_file() == false) <<
-      "Cannot specify mean_file and mean_value at the same time";
-    LOG(INFO) << "Using mean_stddev";
   }
 }
 
@@ -140,7 +47,6 @@ void DataTransformer<Dtype>::Transform(const Datum& datum,
   const bool has_mean_file = param_.has_mean_file();
   const bool has_uint8 = data.size() > 0;
   const bool has_mean_values = mean_values_.size() > 0;
-  const bool has_mean_stddev = param_.has_mean_stddev();
 
   CHECK_GT(datum_channels, 0);
   CHECK_GE(datum_height, crop_size);
@@ -183,14 +89,6 @@ void DataTransformer<Dtype>::Transform(const Datum& datum,
   }
 
   Dtype datum_element;
-  std::vector<float> per_datum_means(datum_channels);
-  std::vector<float> per_datum_stddevs(datum_channels);
-
-  if (has_mean_stddev) {
-    GetMeanStddev(&per_datum_means, &per_datum_stddevs, datum_channels,
-                  height, width, h_off, w_off, data);
-  }
-
   int top_index, data_index;
   for (int c = 0; c < datum_channels; ++c) {
     for (int h = 0; h < height; ++h) {
@@ -210,10 +108,6 @@ void DataTransformer<Dtype>::Transform(const Datum& datum,
         if (has_mean_file) {
           transformed_data[top_index] =
             (datum_element - mean[data_index]) * scale;
-        } else if (has_mean_stddev) {
-          float eps = 1e-9;
-          transformed_data[top_index] =
-            (datum_element - per_datum_means[c]) / (per_datum_stddevs[c] + eps);
         } else {
           if (has_mean_values) {
             transformed_data[top_index] =
@@ -342,7 +236,6 @@ void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
   const bool do_mirror = param_.mirror() && Rand(2);
   const bool has_mean_file = param_.has_mean_file();
   const bool has_mean_values = mean_values_.size() > 0;
-  const bool has_mean_stddev = param_.has_mean_stddev();
 
   CHECK_GT(img_channels, 0);
   CHECK_GE(img_height, crop_size);
@@ -388,15 +281,6 @@ void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
   }
 
   CHECK(cv_cropped_img.data);
-
-  std::vector<float> per_image_means(img_channels);
-  std::vector<float> per_image_stddevs(img_channels);
-
-  if (has_mean_stddev) {
-    GetMeanStddev(&per_image_means, &per_image_stddevs, img_channels,
-                  height, width, h_off, w_off, cv_cropped_img);
-  }
-
   Dtype* transformed_data = transformed_blob->mutable_cpu_data();
   int top_index;
   for (int h = 0; h < height; ++h) {
@@ -415,10 +299,6 @@ void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
           int mean_index = (c * img_height + h_off + h) * img_width + w_off + w;
           transformed_data[top_index] =
             (pixel - mean[mean_index]) * scale;
-        } else if (has_mean_stddev) {
-          float eps = 1e-9;
-          transformed_data[top_index] =
-            (pixel - per_image_means[c]) / (eps + per_image_stddevs[c]);
         } else {
           if (has_mean_values) {
               transformed_data[top_index] =

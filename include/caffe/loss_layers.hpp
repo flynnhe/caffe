@@ -302,6 +302,47 @@ class EuclideanLossLayer : public LossLayer<Dtype> {
 };
 
 /**
+ * @brief Computes the Euclidean (L2) loss using idct@f$
+ */
+template <typename Dtype>
+class IdctEuclideanLossLayer : public LossLayer<Dtype> {
+ public:
+  explicit IdctEuclideanLossLayer(const LayerParameter& param)
+      : LossLayer<Dtype>(param), diff_() {}
+  virtual void computeDIdy(Dtype derivs[4096]);
+  virtual void getCenter12x12(Dtype* coeffs);
+  virtual void computeIdct2(const Dtype* c_coeffs, Dtype* m_coeffs);
+  virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom,
+      const vector<Blob<Dtype>*>& top);
+  virtual void Reshape(const vector<Blob<Dtype>*>& bottom,
+      const vector<Blob<Dtype>*>& top);
+
+  virtual inline const char* type() const { return "IdctEuclideanLoss"; }
+  /**
+   * Unlike most loss layers, in the IdctEuclideanLossLayer we can backpropagate
+   * to both inputs -- override to return true and always allow force_backward.
+   */
+  virtual inline bool AllowForceBackward(const int bottom_index) const {
+    return true;
+  }
+
+ protected:
+  /// @copydoc IdctEuclideanLossLayer
+  virtual void Forward_cpu(const vector<Blob<Dtype>*>& bottom,
+      const vector<Blob<Dtype>*>& top);
+  virtual void Forward_gpu(const vector<Blob<Dtype>*>& bottom,
+      const vector<Blob<Dtype>*>& top);
+  virtual void Backward_cpu(const vector<Blob<Dtype>*>& top,
+      const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom);
+  virtual void Backward_gpu(const vector<Blob<Dtype>*>& top,
+      const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom);
+
+  Blob<Dtype> diff_;
+  Dtype zigzag_indices_[8][8];
+  Dtype idct_derivs_[64*64];
+};
+
+/**
  * @brief Computes the hinge loss for a one-of-many classification task.
  *
  * @param bottom input Blob vector (length 2)

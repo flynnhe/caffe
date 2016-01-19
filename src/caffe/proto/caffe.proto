@@ -374,8 +374,6 @@ message TransformationParameter {
   optional bool force_color = 6 [default = false];
   // Force the decoded image to have 1 color channels.
   optional bool force_gray = 7 [default = false];
-  // Apply per pixel mean subtraction and division by standard deviation
-  optional bool mean_stddev = 8 [default = false];
 }
 
 // Message that stores parameters shared by loss layers
@@ -934,6 +932,7 @@ message V1LayerParameter {
     DROPOUT = 6;
     DUMMY_DATA = 32;
     EUCLIDEAN_LOSS = 7;
+    IDCT_EUCLIDEAN_LOSS = 40;
     ELTWISE = 25;
     EXP = 38;
     FLATTEN = 8;
