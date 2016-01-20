@@ -184,6 +184,8 @@ void IdctEuclideanLossLayer<Dtype>::Reshape(
   CHECK_EQ(bottom[0]->count(1), bottom[1]->count(1))
       << "Inputs must have the same dimension.";
   diff_.ReshapeLike(*bottom[0]);
+  all_pixels0_.ReshapeLike(*bottom[0]);
+  all_pixels1_.ReshapeLike(*bottom[0]);
 }
 
 template <typename Dtype>
