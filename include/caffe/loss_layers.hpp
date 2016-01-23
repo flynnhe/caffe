@@ -308,7 +308,7 @@ template <typename Dtype>
 class IdctEuclideanLossLayer : public LossLayer<Dtype> {
  public:
   explicit IdctEuclideanLossLayer(const LayerParameter& param)
-      : LossLayer<Dtype>(param), diff_() {}
+      : LossLayer<Dtype>(param), diff_(), idct2_derivs_() {}
   virtual void computeDIdy(Dtype derivs[4096]);
   virtual void getCenter12x12(Dtype* coeffs);
   virtual void computeIdct2(const Dtype* c_coeffs, Dtype* m_coeffs);
@@ -341,6 +341,8 @@ class IdctEuclideanLossLayer : public LossLayer<Dtype> {
   Blob<Dtype> diff_;
   Blob<Dtype> all_pixels0_;
   Blob<Dtype> all_pixels1_;
+  Blob<Dtype> idct2_derivs_;
+//  Blob<Dtype> idct2_derivs576_;
   Dtype zigzag_indices_[8][8];
   Dtype idct_derivs_[64*64];
   Dtype idct_derivs576_[576*576];

@@ -240,6 +240,13 @@ TYPED_TEST(GPUMathFunctionsTest, TestCopy) {
   }
 }
 
+TYPED_TEST(GPUMathFunctionsTest, TestHelen) {
+  Blob<TypeParam>* idct2_derivs_ = new Blob<TypeParam>();
+  idct2_derivs_->ReshapeLike(*this->blob_bottom_);
+  caffe_gpu_get_didct2(1, idct2_derivs_->mutable_gpu_data());
+  TypeParam* data = idct2_derivs_->mutable_cpu_data();
+}
+
 #endif
 
 
