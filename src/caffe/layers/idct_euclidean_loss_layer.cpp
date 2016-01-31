@@ -7,66 +7,39 @@
 
 namespace caffe {
 
+const int zigzag_lookup[8][8] = { 
+{ 0, 1, 5, 6, 14, 15, 27, 28 },
+{ 2, 4, 7, 13, 16, 26, 29, 42},
+{ 3, 8, 12, 17, 25, 30, 41, 43},
+{ 9, 11, 18, 24, 31, 40, 44, 53},
+{ 10, 19, 23, 32, 39, 45, 52, 54},
+{ 20, 22, 33, 38, 46, 51, 55, 60},
+{ 21, 34, 37, 47, 50, 56, 59, 61},
+{ 35, 36, 48, 49, 57, 58, 62, 63} 
+};
+
 template <typename Dtype>
-void IdctEuclideanLossLayer<Dtype>::computeDIdy(Dtype derivs[4096])
+void IdctEuclideanLossLayer<Dtype>::computeDIdy(Dtype* derivs)
 {
+  Dtype a0 = (Dtype)(sqrt(2.0 / 8.0));
+  Dtype a1 = (Dtype)(1.0 / sqrt(8.0));
   for (int m = 0; m < 8; ++m) {
     for (int n = 0; n < 8; ++n) {
       int i = m * 8 + n;
       for (int p = 0; p < 8; ++p) {
         for (int q = 0; q < 8; ++q) {
           int j = p * 8 + q;
-          Dtype a_p = (Dtype)(sqrt(2.0 / 8.0));
-          Dtype a_q = (Dtype)(sqrt(2.0 / 8.0));
+          Dtype a_p = a0;
+          Dtype a_q = a0;
           if (p == 0) {
-            a_p = (Dtype)(1.0 / sqrt(8.0));
+            a_p = a1;
           }
           if (q == 0) {
-            a_q = (Dtype)(1.0 / sqrt(8.0));
+            a_q = a1;
           }
-//          derivs[64*i + j] = (Dtype)(a_p * a_q * cos(M_PI*(2*m+1)*p/16.0) * cos(M_PI*(2*n+1)*q/16.0));
-          derivs[64*i + j ] = (Dtype)(a_p * a_q * A_cpu[64*i + j]);
+//          (*dIdy)(i, j) = (Dtype)(a_p * a_q * cos(Rd::Math::PI<Dtype>() * (2 * m + 1) * p / 16.0) * cos(Rd::Math::PI<Dtype>() * (2 * n + 1) * q / 16.0));
+          derivs[i * 64 + j] = (Dtype)(a_p * a_q * A_cpu[i * 64 + j]);
         }
-      }
-    }
-  }
-}
-
-template <typename Dtype>
-void IdctEuclideanLossLayer<Dtype>::getCenter12x12(Dtype* coeffs)
-{
-  const int block_size = 64;
-  // resize coeffs from array of size 1x576 to 24x24 image
-  Dtype block24_24[24][24];
-  for (int i = 0; i < 9; ++i) {
-    Dtype* block = coeffs + i*block_size; // current 8x8 block
-    int j = i/3;
-    int k = i%3; // indices into 3x3 block of 64 coeffs each
-    for (int r = 0; r < 8; ++r) { // go through each coeff in the current 8x8 block
-      for (int c = 0; c < 8; ++c) {
-        block24_24[8*j+r][8*k+c] = block[r*8+c];
-      }
-    }
-  }
-
-  // take out the middle 12x12
-  for (int j = 0; j < 24; ++j) {
-    for (int i = 0; i < 24; ++i) {
-      if ( !(j >= 6 && j <= 17 && i >=6 && i <= 17) ) {
-        block24_24[j][i] = 0.0;
-      }
-    }
-  }
-
-  // write the thing back to a 1x576 array, block by block
-  Dtype* pixels = coeffs;
-  for (int i = 0; i < 9; ++i) {
-    int j = i/3;
-    int k = i%3;
-    for (int r = 0; r < 8; ++r) { // go through each coeff in the current 8x8 block
-      for (int c = 0; c < 8; ++c) {
-        *pixels = block24_24[8*j+r][8*k+c];
-        pixels++;
       }
     }
   }
@@ -78,8 +51,6 @@ void IdctEuclideanLossLayer<Dtype>::computeIdct2(const Dtype* c_coeffs, Dtype* l
   const Dtype a0 = (Dtype)(1.0 / (Dtype)sqrt(8.0));
   const Dtype a1 = (Dtype)sqrt((Dtype)(2.0 / 8.0));
   for (int i = 0; i < 64; ++i) {
-    //int m = i / 8;
-    //int n = i % 8;
     local_pixels[i] = 0.0;
     for (int k = 0; k < 64; ++k) {
       int p = k / 8;
@@ -92,7 +63,9 @@ void IdctEuclideanLossLayer<Dtype>::computeIdct2(const Dtype* c_coeffs, Dtype* l
       if (q == 0) {
         a_q = a0; 
       }
-      local_pixels[i] += Dtype(a_p * a_q * c_coeffs[k] * A_cpu[i*64+k]);
+      //local_pixels[i] += Dtype(a_p * a_q * c_coeffs[zigzag_lookup[p][q]] * cos(M_PI * p * (2*m+1) / 16.0) * cos(M_PI * q * (2*n+1) / 16.0));
+      local_pixels[i] += Dtype(a_p * a_q * c_coeffs[zigzag_lookup[p][q]] * A_cpu[i*64+k]);
+      //local_pixels[i] += Dtype(a_p * a_q * c_coeffs[k] * A_cpu[i*64+k]);
     }
   }
 }
@@ -147,6 +120,24 @@ void IdctEuclideanLossLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bott
       const Dtype* c_local_coeffs1 = c_curr_example_coeffs1 + j;
       computeIdct2(c_local_coeffs0, local_pixels0);
       computeIdct2(c_local_coeffs1, local_pixels1);
+      /*if (j == 128) {
+        std::cout << "coeffs:" << std::endl;
+        for (int c = 0; c < 64; ++c) {
+          int p = c / 8;
+          int q = c % 8;
+          std::cout << c_local_coeffs1[zigzag_lookup[p][q]];
+          if (q == 7) std::cout << ";\n";
+          else std::cout << ",";
+        }
+        std::cout << "pixels:" << std::endl;
+        for (int c = 0; c < 64; ++c) {
+          int p = c / 8;
+          int q = c % 8;
+          std::cout << local_pixels1[c];
+          if (q == 7) std::cout << ";\n";
+          else std::cout << ",";
+        }
+      }*/
     }
   }
   caffe_sub(
@@ -162,6 +153,16 @@ void IdctEuclideanLossLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bott
 template <typename Dtype>
 void IdctEuclideanLossLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
     const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom) {
+  /*Dtype A[3] = {1., 2., 3.};
+  Dtype B[9] = {1., 2., 3., 4., 5., 6., 7., 8., 9.};
+  Dtype C[3];
+  caffe_cpu_gemm<Dtype>(CblasTrans, CblasNoTrans, 1, 3, 3, 1.0, A, B, 0., C); 
+  for (int i = 0; i < 3; ++i) {
+    std::cout << C[i] << ",";
+  }
+  std::cout << std::endl;
+  LOG(FATAL) << "aergaerg";
+  */
   for (int i = 0; i < 2; ++i) {
     if (propagate_down[i]) {
       const Dtype sign = (i == 0) ? 1 : -1;

@@ -310,7 +310,6 @@ class IdctEuclideanLossLayer : public LossLayer<Dtype> {
   explicit IdctEuclideanLossLayer(const LayerParameter& param)
       : LossLayer<Dtype>(param), diff_(), idct2_derivs_() {}
   virtual void computeDIdy(Dtype derivs[4096]);
-  virtual void getCenter12x12(Dtype* coeffs);
   virtual void computeIdct2(const Dtype* c_coeffs, Dtype* m_coeffs);
   virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top);

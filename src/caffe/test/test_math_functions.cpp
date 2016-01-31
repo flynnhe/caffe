@@ -240,11 +240,224 @@ TYPED_TEST(GPUMathFunctionsTest, TestCopy) {
   }
 }
 
-TYPED_TEST(GPUMathFunctionsTest, TestHelen) {
-  Blob<TypeParam>* idct2_derivs_ = new Blob<TypeParam>();
-  idct2_derivs_->ReshapeLike(*this->blob_bottom_);
-  caffe_gpu_get_didct2(1, idct2_derivs_->mutable_gpu_data());
-  TypeParam* data = idct2_derivs_->mutable_cpu_data();
+TYPED_TEST(GPUMathFunctionsTest, testdIdy) {
+  bool success = true;
+
+  Blob<TypeParam> y_;
+  y_.Reshape(1, 1, 64, 64);
+  TypeParam* y = y_.mutable_cpu_data();
+
+  Blob<TypeParam> idct2_y_;
+  idct2_y_.Reshape(1, 1, 64, 64);
+  TypeParam* idct2_y = idct2_y_.mutable_gpu_data();
+
+  Blob<TypeParam> dIdy_;
+  dIdy_.Reshape(1, 1, 64, 64);
+  TypeParam* dIdy = dIdy_.mutable_gpu_data();
+
+  TypeParam num_deriv;
+
+  TypeParam y_orig[64] = {3887.29,-1131.98,1415.07,-107.701,897.421,229.441,642.426,444.358,-1131.98,329.635,-412.069,31.3625,-261.331,-66.8145,-187.076,-129.398,1415.07,-412.069,515.118,-39.206,326.683,83.523,233.857,161.758,-107.701,31.3625,-39.206,2.9845,-24.864,-6.3565,-17.8,-12.3105,897.421,-261.331,326.683,-24.864,207.179,52.97,148.31,102.585,229.441,-66.8145,83.523,-6.3565,52.97,13.5435,37.918,26.2275,642.426,-187.076,233.858,-17.8,148.31,37.918,106.168,73.436,444.358,-129.398,161.758,-12.3105,102.585,26.2275,73.436,50.7945,};
+
+  static const int s_zigzag_lookup[8][8] = {
+    { 0, 1, 5, 6, 14, 15, 27, 28 },
+    { 2, 4, 7, 13, 16, 26, 29, 42 },
+    { 3, 8, 12, 17, 25, 30, 41, 43 },
+    { 9, 11, 18, 24, 31, 40, 44, 53 },
+    { 10, 19, 23, 32, 39, 45, 52, 54 },
+    { 20, 22, 33, 38, 46, 51, 55, 60 },
+    { 21, 34, 37, 47, 50, 56, 59, 61 },
+    { 35, 36, 48, 49, 57, 58, 62, 63 }
+  };
+
+  // put y in zigzag order
+  for (int i = 0; i < 8; ++i) {
+    for (int j = 0; j < 8; ++j) {
+      y[i * 8 + j] = y_orig[s_zigzag_lookup[i][j]];
+    }
+  }
+
+  caffe_gpu_idct2(1, y_.gpu_data(), idct2_y);
+  caffe_gpu_get_didct2(1, dIdy);
+
+  TypeParam eps_val = (TypeParam)1e-5;
+
+  // how much idct i changes when you change coeff j
+  for (int i = 0; i < 64; ++i) {
+    for (int j = 0; j < 64; ++j) {
+      // add eps to coeff j
+      Blob<TypeParam> eps_;
+      eps_.Reshape(1, 1, 64, 64);
+      TypeParam* eps = eps_.mutable_cpu_data();
+      memset(eps, 0, 64*sizeof(*eps));
+      eps[j] = eps_val;
+
+      Blob<TypeParam> y_eps_;
+      y_eps_.Reshape(1, 1, 64, 64);
+      TypeParam* y_eps = y_eps_.mutable_cpu_data();
+
+      for (int k = 0; k < 64; ++k) {
+        y_eps[k] = y_orig[k] + eps[k];
+      }
+
+      TypeParam y2_eps[64];
+      // put y1 in zigzag order
+      for (int a = 0; a < 8; ++a) {
+        for (int b = 0; b < 8; ++b) {
+          y2_eps[a * 8 + b] = y_eps[s_zigzag_lookup[a][b]];
+        }
+      }
+      for (int a = 0; a < 64; ++a) y_eps[a] = y2_eps[a];
+
+      Blob<TypeParam> idct2_y_eps_;
+      idct2_y_eps_.Reshape(1, 1, 64, 64);
+      TypeParam* idct2_y_eps = idct2_y_eps_.mutable_gpu_data();
+
+      caffe_gpu_idct2(1, y_eps_.gpu_data(), idct2_y_eps);
+
+      num_deriv = (idct2_y_eps_.cpu_data()[i] - idct2_y_.cpu_data()[i]) / eps_val;
+
+      TypeParam diff = fabs(num_deriv - dIdy_.cpu_data()[i*64+j]);
+      success &= (diff < eps_val);
+
+    }
+  }
+
+  EXPECT_EQ(success, true);
+}
+
+TYPED_TEST(GPUMathFunctionsTest, testDIdy_z)
+{
+  bool success = true;
+  // how much idct2 changes when you change coefficients
+
+  // coefficients
+  TypeParam y_orig[64] = {3887.29,-1131.98,229.441,642.426,-187.076,-129.398,2.9845,-24.864,1415.07,897.421,444.358,-66.8145,1415.07,-39.206,-6.3565,83.523,-107.701,-1131.98,-261.331,-412.069,31.3625,-17.8,-66.8145,-6.3565,329.635,31.3625,515.118,-107.701,-12.3105,229.441,52.97,37.918,-412.069,-39.206,161.758,897.421,102.585,13.5435,148.31,106.168,326.683,233.857,-261.331,148.31,37.918,-17.8,73.436,102.585,83.523,326.683,52.97,26.2275,233.858,444.358,-12.3105,26.2275,-24.864,207.179,642.426,-187.076,-129.398,161.758,73.436,50.7945,};
+
+  Blob<TypeParam> dIdy_;
+  dIdy_.Reshape(1, 1, 64, 64);
+  TypeParam* dIdy = dIdy_.mutable_gpu_data();
+  caffe_gpu_get_didct2(1, dIdy);
+
+  Blob<TypeParam> y_;
+  y_.Reshape(1, 1, 64, 64);
+  TypeParam* y = y_.mutable_cpu_data();
+  for (int i = 0; i < 64; ++i) {
+    y[i] = y_orig[i];
+  }
+  Blob<TypeParam> idct2_y_;
+  idct2_y_.Reshape(1, 1, 64, 64);
+  caffe_gpu_idct2(1, y_.gpu_data(), idct2_y_.mutable_gpu_data());
+
+  // now get numerical derivative (how much idct changes when you change
+  // the jth coeff
+  const TypeParam eps_val = (TypeParam)1e-4f;
+  for (int i = 0; i < 64; ++i) { // loop through idct
+    for (int j = 0; j < 64; ++j) { // loop through coeffs
+      // add eps to coeff
+      Blob<TypeParam> eps_;
+      eps_.Reshape(1, 1, 64, 64);
+      TypeParam* eps = eps_.mutable_cpu_data();
+      memset(eps, 0, sizeof(*eps));
+      eps[j] = eps_val;
+
+      Blob<TypeParam> y_eps_;
+      y_eps_.Reshape(1, 1, 64, 64);
+      TypeParam* y_eps = y_eps_.mutable_cpu_data();
+      for (int k = 0; k < 64; ++k) {
+        y_eps[k] = y[k] + eps[k];
+      }
+
+      Blob<TypeParam> idct2_y_eps_;
+      idct2_y_eps_.Reshape(1, 1, 64, 64);
+      caffe_gpu_idct2(1, y_eps_.gpu_data(), idct2_y_eps_.mutable_gpu_data());
+
+      TypeParam num_deriv = (idct2_y_eps_.cpu_data()[i] - idct2_y_.cpu_data()[i]) / eps_val;
+      success &= fabs(num_deriv - dIdy_.cpu_data()[i*64+j]) < eps_val;
+    }
+  }
+  EXPECT_EQ(success, true);
+}
+
+TYPED_TEST(GPUMathFunctionsTest, testIdctDerivFromCoeffs) {
+  bool success = true;
+  const int N = 64;
+
+  Blob<TypeParam> y_, y_bar_, dIdy_;
+  y_.Reshape(1, 1, 64, 64);
+  y_bar_.Reshape(1, 1, 64, 64);
+  dIdy_.Reshape(1, 1, 64, 64);
+  Blob<TypeParam> idct2_y_, idct2_y_bar_;
+  idct2_y_.Reshape(1, 1, 64, 64);
+  idct2_y_bar_.Reshape(1, 1, 64, 64);
+  Blob<TypeParam> dEdy_, idct2_diff_;
+  dEdy_.Reshape(1, 1, 64, 64);
+  idct2_diff_.Reshape(1, 1, 64, 64);
+
+  TypeParam* y = y_.mutable_cpu_data();
+  TypeParam* y_bar = y_bar_.mutable_cpu_data();
+  TypeParam* dIdy = dIdy_.mutable_gpu_data();
+  TypeParam* idct2_y = idct2_y_.mutable_gpu_data();
+  TypeParam* idct2_y_bar = idct2_y_bar_.mutable_gpu_data();
+  TypeParam* dEdy = dEdy_.mutable_gpu_data();
+
+  // coefficients in zigzag order
+  TypeParam y_orig[64] = {3887.29,-1131.98,229.441,642.426,-187.076,-129.398,2.9845,-24.864,1415.07,897.421,444.358,-66.8145,1415.07,-39.206,-6.3565,83.523,-107.701,-1131.98,-261.331,-412.069,31.3625,-17.8,-66.8145,-6.3565,329.635,31.3625,515.118,-107.701,-12.3105,229.441,52.97,37.918,-412.069,-39.206,161.758,897.421,102.585,13.5435,148.31,106.168,326.683,233.857,-261.331,148.31,37.918,-17.8,73.436,102.585,83.523,326.683,52.97,26.2275,233.858,444.358,-12.3105,26.2275,-24.864,207.179,642.426,-187.076,-129.398,161.758,73.436,50.7945,};
+
+  for(int i = 0; i < 64; ++i) {
+    y[i] = y_orig[i];
+    y_bar[i] = y_orig[i];
+  }
+  y_bar[0] += (TypeParam)1.0;
+  y_bar[37] += (TypeParam)1.0;
+
+  caffe_gpu_get_didct2(1, dIdy);
+
+  TypeParam eps_val = (TypeParam)1e-4;
+  caffe_gpu_idct2(1, y_.mutable_gpu_data(), idct2_y);
+  caffe_gpu_idct2(1, y_bar_.mutable_gpu_data(), idct2_y_bar);
+
+  caffe_gpu_sub(
+     N,
+     idct2_y_bar_.gpu_data(),
+     idct2_y_.gpu_data(),
+     idct2_diff_.mutable_gpu_data());
+  caffe_gpu_gemm<TypeParam>(CblasTrans, CblasNoTrans, 1, 64, 64,
+                        (TypeParam)(1.0/N), idct2_diff_.gpu_data(), dIdy_.gpu_data(), 0., dEdy);
+
+  // compare with numerical derivative
+  for (int i = 0; i < 64; ++i) {
+    Blob<TypeParam> eps_;
+    eps_.Reshape(1, 1, 64, 64);
+    TypeParam* eps = eps_.mutable_cpu_data();
+    memset(eps, 0, 64*sizeof(*eps));
+    eps[i] = eps_val;
+
+    Blob<TypeParam> y_bar_eps_;
+    y_bar_eps_.Reshape(1, 1, 64, 64);
+    TypeParam* y_bar_eps = y_bar_eps_.mutable_cpu_data();
+    for (int k = 0; k < 64; ++k) {
+      y_bar_eps[k] = y_bar[k] + eps[k];
+    }
+
+    Blob<TypeParam> idct2_y_bar_eps_;
+    idct2_y_bar_eps_.Reshape(1, 1, 64, 64);
+    caffe_gpu_idct2(1, y_bar_eps_.gpu_data(), idct2_y_bar_eps_.mutable_gpu_data());
+
+    TypeParam E1 = (TypeParam)0.0, E2 = (TypeParam)0.0;
+    for (int k = 0; k < 64; ++k) {
+      E1 += (idct2_y_bar_.cpu_data()[k] - idct2_y_.cpu_data()[k]) * (idct2_y_bar_.cpu_data()[k]- idct2_y_.cpu_data()[k]);
+      E2 += (idct2_y_bar_eps_.cpu_data()[k] - idct2_y_.cpu_data()[k]) * (idct2_y_bar_eps_.cpu_data()[k] - idct2_y_.cpu_data()[k]);
+    }
+    E1 = (TypeParam)(E1 / 128.0);
+    E2 = (TypeParam)(E2 / 128.0);
+
+    TypeParam num_deriv = (E2 - E1) / eps_val;
+    success = success && fabs(dEdy_.cpu_data()[i] - num_deriv) < eps_val;
+
+  }
+
+  EXPECT_EQ(success, true);
 }
 
 #endif
