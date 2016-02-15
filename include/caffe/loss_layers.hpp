@@ -341,7 +341,6 @@ class IdctEuclideanLossLayer : public LossLayer<Dtype> {
   Blob<Dtype> all_pixels0_;
   Blob<Dtype> all_pixels1_;
   Blob<Dtype> idct2_derivs_;
-//  Blob<Dtype> idct2_derivs576_;
   Dtype zigzag_indices_[8][8];
   Dtype idct_derivs_[64*64];
   Dtype idct_derivs576_[576*576];
