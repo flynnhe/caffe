@@ -12,7 +12,7 @@ void IdctEuclideanLossLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bott
     const vector<Blob<Dtype>*>& top) {
   int count = bottom[0]->count();
   const int block_size = 64;
-  const int example_size = block_size * 9;
+  const int example_size = block_size * 3;
 
   const Dtype* c_coeffs0 = bottom[0]->gpu_data();
   const Dtype* c_coeffs1 = bottom[1]->gpu_data();
@@ -47,12 +47,13 @@ void IdctEuclideanLossLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top
     if (propagate_down[i]) {
       const Dtype sign = (i == 0) ? 1 : -1;
       const Dtype alpha = sign * top[0]->cpu_diff()[0] / bottom[i]->num();
+      const int num_blocks = 5;
       const int block_size = 64;
-      const int example_size = 9 * block_size;
+      const int example_size = num_blocks * block_size;
       const int N = bottom[i]->count() / example_size;
       for (int j = 0; j < N; ++j) {
         // compute dE/dI * dI/dy for each example in the batch
-        for (int k = 0; k < 9; ++k) {
+        for (int k = 0; k < num_blocks; ++k) {
           const Dtype* diff = diff_.gpu_data() + j*example_size + k*block_size;
           Dtype* result = bottom[i]->mutable_gpu_diff() + j*example_size + k*block_size;
           // caffe_gpu_gemm assumes matrices are in column-major order,
