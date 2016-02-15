@@ -12,7 +12,7 @@ template <typename Dtype>
 void IdctEuclideanLossLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     const vector<Blob<Dtype>*>& top) {
   int count = bottom[0]->count();
-  const int num_blocks = 1;
+  const int num_blocks = 5;
   const int block_size = 64;
   const int example_size = block_size * num_blocks;
 
@@ -100,7 +100,7 @@ void IdctEuclideanLossLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top
     if (propagate_down[i]) {
       const Dtype sign = (i == 0) ? 1 : -1;
       const Dtype alpha = sign * top[0]->cpu_diff()[0] / bottom[i]->num();
-      const int num_blocks = 1;
+      const int num_blocks = 5;
       const int block_size = 64;
       const int example_size = num_blocks * block_size;
       const int N = bottom[i]->count() / example_size;
