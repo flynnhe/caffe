@@ -277,7 +277,7 @@ template <typename Dtype>
 __global__ void idct2_kernel(const int n, const Dtype* c_coeffs0,
     const Dtype* c_coeffs1, Dtype* all_pixels0, Dtype* all_pixels1) {
   CUDA_KERNEL_LOOP(index, n) {
-    const int num_blocks = 5;
+    const int num_blocks = 9;
     const int block_size = 64;
     const int example_size = block_size * num_blocks;
     int offset = index*example_size;
