@@ -267,8 +267,8 @@ __host__ __device__ void idct2(const Dtype* coeffs, Dtype* pixels, int block_idx
       if (q == 0) {
         a_q = a0;
       }
-      //pixels[i] += (Dtype)(a_p * a_q * local_coeffs[j] * A[64 * i + j]);
-      pixels[i] += (Dtype)(a_p * a_q * (stddev[64*block_idx+j] * local_coeffs[j] + mean[64*block_idx+j]) * A[64 * i + j]);
+      pixels[i] += (Dtype)(a_p * a_q * local_coeffs[j] * A[64 * i + j]);
+      //pixels[i] += (Dtype)(a_p * a_q * (stddev[64*block_idx+j] * local_coeffs[j] + mean[64*block_idx+j]) * A[64 * i + j]);
     }
   }
 }
@@ -353,8 +353,8 @@ __global__ void didct2_kernel(const int N, Dtype* derivs) {
           if (q == 0) {
             a_q = a1;
           }
-          //derivs[i*64+j] = (Dtype)(a_p * a_q * A[i*64+j]);
-          derivs[i*64+j] = (Dtype)(stddev[j] * a_p * a_q * A[i*64+j]);
+          derivs[i*64+j] = (Dtype)(a_p * a_q * A[i*64+j]);
+          //derivs[i*64+j] = (Dtype)(stddev[j] * a_p * a_q * A[i*64+j]);
         }
       }
     }
