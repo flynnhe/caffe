@@ -7,28 +7,19 @@
 
 namespace caffe {
 
-const int zigzag_lookup[8][8] = { 
-{ 0, 1, 5, 6, 14, 15, 27, 28 },
-{ 2, 4, 7, 13, 16, 26, 29, 42},
-{ 3, 8, 12, 17, 25, 30, 41, 43},
-{ 9, 11, 18, 24, 31, 40, 44, 53},
-{ 10, 19, 23, 32, 39, 45, 52, 54},
-{ 20, 22, 33, 38, 46, 51, 55, 60},
-{ 21, 34, 37, 47, 50, 56, 59, 61},
-{ 35, 36, 48, 49, 57, 58, 62, 63} 
-};
-
 template <typename Dtype>
-void IdctEuclideanLossLayer<Dtype>::computeDIdy(Dtype* derivs)
+void IdctEuclideanLossLayer<Dtype>::computeDIdy(Dtype* derivs, const int npix)
 {
-  Dtype a0 = (Dtype)(sqrt(2.0 / 8.0));
-  Dtype a1 = (Dtype)(1.0 / sqrt(8.0));
-  for (int m = 0; m < 8; ++m) {
-    for (int n = 0; n < 8; ++n) {
-      int i = m * 8 + n;
-      for (int p = 0; p < 8; ++p) {
-        for (int q = 0; q < 8; ++q) {
-          int j = p * 8 + q;
+  const int N = npix;
+  const int N2 = N*N;
+  Dtype a0 = (Dtype)(sqrt(2.0 / N));
+  Dtype a1 = (Dtype)(1.0 / sqrt(N));
+  for (int m = 0; m < N; ++m) {
+    for (int n = 0; n < N; ++n) {
+      int i = m * N + n;
+      for (int p = 0; p < N; ++p) {
+        for (int q = 0; q < N; ++q) {
+          int j = p * N + q;
           Dtype a_p = a0;
           Dtype a_q = a0;
           if (p == 0) {
@@ -38,7 +29,8 @@ void IdctEuclideanLossLayer<Dtype>::computeDIdy(Dtype* derivs)
             a_q = a1;
           }
 //          (*dIdy)(i, j) = (Dtype)(a_p * a_q * cos(Rd::Math::PI<Dtype>() * (2 * m + 1) * p / 16.0) * cos(Rd::Math::PI<Dtype>() * (2 * n + 1) * q / 16.0));
-          derivs[i * 64 + j] = (Dtype)(a_p * a_q * A_cpu[i * 64 + j]);
+          //derivs[i * 64 + j] = (Dtype)(a_p * a_q * A_cpu[i * 64 + j]);
+          derivs[i * N2 + j] = (Dtype)(a_p * a_q * cos(M_PI*p*(2*m+1)/(2*N)) * cos(M_PI*q*(2*n+1)/(2*N))); 
         }
       }
     }
@@ -46,15 +38,19 @@ void IdctEuclideanLossLayer<Dtype>::computeDIdy(Dtype* derivs)
 }
 
 template <typename Dtype>
-void IdctEuclideanLossLayer<Dtype>::computeIdct2(const Dtype* c_coeffs, Dtype* local_pixels)
+void IdctEuclideanLossLayer<Dtype>::computeIdct2(const Dtype* c_coeffs, Dtype* local_pixels, const int npix)
 {
-  const Dtype a0 = (Dtype)(1.0 / (Dtype)sqrt(8.0));
-  const Dtype a1 = (Dtype)sqrt((Dtype)(2.0 / 8.0));
-  for (int i = 0; i < 64; ++i) {
+  const int N = npix;
+  const int N2 = N*N;
+  const Dtype a0 = (Dtype)(1.0 / (Dtype)sqrt(N));
+  const Dtype a1 = (Dtype)sqrt((Dtype)(2.0 / N));
+  for (int i = 0; i < N2; ++i) {
     local_pixels[i] = 0.0;
-    for (int k = 0; k < 64; ++k) {
-      int p = k / 8;
-      int q = k % 8;
+    int m = i / N;
+    int n = i % N;
+    for (int k = 0; k < N2; ++k) {
+      int p = k / N;
+      int q = k % N;
       Dtype a_p = a1; 
       Dtype a_q = a1; 
       if (p == 0) {
@@ -64,8 +60,8 @@ void IdctEuclideanLossLayer<Dtype>::computeIdct2(const Dtype* c_coeffs, Dtype* l
         a_q = a0; 
       }
       //local_pixels[i] += Dtype(a_p * a_q * c_coeffs[zigzag_lookup[p][q]] * cos(M_PI * p * (2*m+1) / 16.0) * cos(M_PI * q * (2*n+1) / 16.0));
-      local_pixels[i] += Dtype(a_p * a_q * c_coeffs[zigzag_lookup[p][q]] * A_cpu[i*64+k]);
-      //local_pixels[i] += Dtype(a_p * a_q * c_coeffs[k] * A_cpu[i*64+k]);
+      //local_pixels[i] += Dtype(a_p * a_q * c_coeffs[zigzag_lookup[p][q]] * A_cpu[i*64+k]);
+      local_pixels[i] += (Dtype)(a_p * a_q * c_coeffs[k] * cos(M_PI * p * (2*m+1) / 16.0) * cos(M_PI * q * (2*n+1) / 16.0));
     }
   }
 }
@@ -74,11 +70,18 @@ template <typename Dtype>
 void IdctEuclideanLossLayer<Dtype>::LayerSetUp(
   const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top) {
   LossLayer<Dtype>::LayerSetUp(bottom, top);
-  computeDIdy(idct_derivs_);
+  const int npix = 24;
+  const int N2 = npix*npix;
+  computeDIdy(idct_derivs_, npix);
   all_pixels0_.ReshapeLike(*bottom[0]);
   all_pixels1_.ReshapeLike(*bottom[0]);
-  idct2_derivs_.ReshapeLike(*bottom[0]);
-  caffe_gpu_get_didct2(1, idct2_derivs_.mutable_gpu_data());
+  std::vector<int> v;
+  v.push_back(bottom[0]->num());
+  v.push_back(bottom[0]->channels());
+  v.push_back(N2);
+  v.push_back(N2);
+  idct2_derivs_.Reshape(v);
+  caffe_gpu_get_didct2(1, npix, idct2_derivs_.mutable_gpu_data());
 }
 
 template <typename Dtype>
@@ -90,7 +93,6 @@ void IdctEuclideanLossLayer<Dtype>::Reshape(
   diff_.ReshapeLike(*bottom[0]);
   all_pixels0_.ReshapeLike(*bottom[0]);
   all_pixels1_.ReshapeLike(*bottom[0]);
-  //idct2_derivs_.ReshapeLike(*bottom[0]);
 }
 
 template <typename Dtype>
@@ -98,8 +100,10 @@ void IdctEuclideanLossLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bott
     const vector<Blob<Dtype>*>& top) {
   int count = bottom[0]->count();
 
-  const int block_size = 64;
-  const int example_size = block_size * 9;
+  const int num_blocks = 1;
+  const int npix = 24;
+  const int block_size = npix*npix;
+  const int example_size = num_blocks * block_size;
   const Dtype* c_coeffs0 = bottom[0]->cpu_data();
   const Dtype* c_coeffs1 = bottom[1]->cpu_data();
 
@@ -118,26 +122,8 @@ void IdctEuclideanLossLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bott
       Dtype* local_pixels1 = curr_example_pixels1 + j;
       const Dtype* c_local_coeffs0 = c_curr_example_coeffs0 + j;
       const Dtype* c_local_coeffs1 = c_curr_example_coeffs1 + j;
-      computeIdct2(c_local_coeffs0, local_pixels0);
-      computeIdct2(c_local_coeffs1, local_pixels1);
-      /*if (j == 128) {
-        std::cout << "coeffs:" << std::endl;
-        for (int c = 0; c < 64; ++c) {
-          int p = c / 8;
-          int q = c % 8;
-          std::cout << c_local_coeffs1[zigzag_lookup[p][q]];
-          if (q == 7) std::cout << ";\n";
-          else std::cout << ",";
-        }
-        std::cout << "pixels:" << std::endl;
-        for (int c = 0; c < 64; ++c) {
-          int p = c / 8;
-          int q = c % 8;
-          std::cout << local_pixels1[c];
-          if (q == 7) std::cout << ";\n";
-          else std::cout << ",";
-        }
-      }*/
+      computeIdct2(c_local_coeffs0, local_pixels0, npix);
+      computeIdct2(c_local_coeffs1, local_pixels1, npix);
     }
   }
   caffe_sub(
@@ -153,30 +139,22 @@ void IdctEuclideanLossLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bott
 template <typename Dtype>
 void IdctEuclideanLossLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
     const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom) {
-  /*Dtype A[3] = {1., 2., 3.};
-  Dtype B[9] = {1., 2., 3., 4., 5., 6., 7., 8., 9.};
-  Dtype C[3];
-  caffe_cpu_gemm<Dtype>(CblasTrans, CblasNoTrans, 1, 3, 3, 1.0, A, B, 0., C); 
-  for (int i = 0; i < 3; ++i) {
-    std::cout << C[i] << ",";
-  }
-  std::cout << std::endl;
-  LOG(FATAL) << "aergaerg";
-  */
   for (int i = 0; i < 2; ++i) {
     if (propagate_down[i]) {
       const Dtype sign = (i == 0) ? 1 : -1;
       const Dtype alpha = sign * top[0]->cpu_diff()[0] / bottom[i]->num();
-      const int block_size = 64;
-      const int example_size = 9 * block_size;
+      const int num_blocks = 1;
+      const int npix = 24; // w or h of square
+      const int block_size = npix*npix;
+      const int example_size = num_blocks * block_size;
       const int N = bottom[i]->count() / example_size;
       const Dtype* idct_derivs = (const Dtype*)idct_derivs_;
       for (int j = 0; j < N; ++j) {
         // compute dE/dI * dI/dy for each example in the batch
-        for (int k = 0; k < 9; ++k) {
+        for (int k = 0; k < num_blocks; ++k) {
           const Dtype* diff = diff_.cpu_data() + j*example_size + k*block_size;
           Dtype* result = bottom[i]->mutable_cpu_diff() + j*example_size + k*block_size;
-          caffe_cpu_gemm<Dtype>(CblasNoTrans, CblasNoTrans, 1, 64, 64,
+          caffe_cpu_gemm<Dtype>(CblasNoTrans, CblasNoTrans, 1, block_size, block_size,
                                 alpha, diff, idct_derivs, 0., result);
         }
        }

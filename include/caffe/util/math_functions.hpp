@@ -166,13 +166,7 @@ void caffe_gpu_gemv(const CBLAS_TRANSPOSE TransA, const int M, const int N,
     Dtype* y);
 
 template <typename Dtype>
-void caffe_gpu_gemm_idct2(const CBLAS_TRANSPOSE TransA,
-    const CBLAS_TRANSPOSE TransB, const int M, const int N, const int K,
-    const Dtype alpha, const Dtype* A, const Dtype* B, const Dtype beta,
-    Dtype* C);
-
-template <typename Dtype>
-void caffe_gpu_get_didct2(const int N, Dtype* derivs);
+void caffe_gpu_get_didct2(const int N, const int npix, Dtype* derivs);
 
 template <typename Dtype>
 void caffe_gpu_axpy(const int N, const Dtype alpha, const Dtype* X,
@@ -208,12 +202,9 @@ template <typename Dtype>
 void caffe_gpu_sub(const int N, const Dtype* a, const Dtype* b, Dtype* y);
 
 template <typename Dtype>
-void caffe_gpu_idct2(const int N, const Dtype* c_coeffs0,
-  const Dtype* c_coeffs1, Dtype* all_pixels0, Dtype* all_pixels1);
-
-template <typename Dtype>
-void caffe_gpu_idct2(const int N, const Dtype* c_coeffs,
-  Dtype* all_pixels);
+void caffe_gpu_idct2(const int N, const int npix, const int num_blocks,
+    const int block_size, const Dtype* c_coeffs0,
+    const Dtype* c_coeffs1, Dtype* all_pixels0, Dtype* all_pixels1);
 
 template <typename Dtype>
 void caffe_gpu_mul(const int N, const Dtype* a, const Dtype* b, Dtype* y);

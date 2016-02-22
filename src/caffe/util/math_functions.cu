@@ -246,19 +246,24 @@ void caffe_gpu_sub<double>(const int N, const double* a, const double* b,
 }
 
 template <typename Dtype>
-__host__ __device__ void idct2(const Dtype* coeffs, Dtype* pixels, int block_idx)
+__host__ __device__ void idct2(const Dtype* coeffs, Dtype* pixels, const int npix)
 {
   // make a local copy of the data to avoid waiting from blocking of shared data
-  Dtype local_coeffs[64];
-  memcpy(local_coeffs, coeffs, 64*sizeof(Dtype));
+  const int N = npix;
+  const int N2 = N*N;
+  std::vector<Dtype> local_coeffs;
+  local_coeffs.resize(N2);
+  memcpy(&local_coeffs[0], coeffs, N2*sizeof(Dtype));
 
-  const Dtype a0 = (Dtype)(1.0 / (Dtype)sqrt(8.0));
-  const Dtype a1 = (Dtype)sqrt((Dtype)(2.0 / 8.0));
-  for (int i = 0; i < 64; ++i) {
+  const Dtype a0 = (Dtype)(1.0 / (Dtype)sqrt(N));
+  const Dtype a1 = (Dtype)sqrt((Dtype)(2.0 / N));
+  for (int i = 0; i < N2; ++i) {
     pixels[i] = 0.0;
-    for (int j = 0; j < 64; ++j) {
-      int p = j / 8;
-      int q = j % 8;
+    int m = i / N;
+    int n = i % N;
+    for (int j = 0; j < N2; ++j) {
+      int p = j / N;
+      int q = j % N;
       Dtype a_p = a1;
       Dtype a_q = a1;
       if (p == 0) {
@@ -267,18 +272,17 @@ __host__ __device__ void idct2(const Dtype* coeffs, Dtype* pixels, int block_idx
       if (q == 0) {
         a_q = a0;
       }
-      pixels[i] += (Dtype)(a_p * a_q * local_coeffs[j] * A[64 * i + j]);
-      //pixels[i] += (Dtype)(a_p * a_q * (stddev[64*block_idx+j] * local_coeffs[j] + mean[64*block_idx+j]) * A[64 * i + j]);
+      //pixels[i] += (Dtype)(a_p * a_q * local_coeffs[j] * A[64 * i + j]);
+      pixels[i] += (Dtype)(a_p * a_q * local_coeffs[j] * cos(M_PI*p*(2*m+1)/(2*N)) * cos(M_PI*q*(2*n+1)/(2*N)));
     }
   }
 }
 
 template <typename Dtype>
-__global__ void idct2_kernel(const int n, const Dtype* c_coeffs0,
+__global__ void idct2_kernel(const int n, const int npix, const int num_blocks, 
+    const int block_size, const Dtype* c_coeffs0,
     const Dtype* c_coeffs1, Dtype* all_pixels0, Dtype* all_pixels1) {
   CUDA_KERNEL_LOOP(index, n) {
-    const int num_blocks = 9;
-    const int block_size = 64;
     const int example_size = block_size * num_blocks;
     int offset = index*example_size;
 
@@ -293,58 +297,39 @@ __global__ void idct2_kernel(const int n, const Dtype* c_coeffs0,
       Dtype* local_pixels1 = curr_example_pixels1 + j;
       const Dtype* c_local_coeffs0 = c_curr_example_coeffs0 + j;
       const Dtype* c_local_coeffs1 = c_curr_example_coeffs1 + j;
-      idct2(c_local_coeffs0, local_pixels0, j / block_size);
-      idct2(c_local_coeffs1, local_pixels1, j / block_size);
+      idct2(c_local_coeffs0, local_pixels0, npix);
+      idct2(c_local_coeffs1, local_pixels1, npix);
     }
   }
 }
-/*
-template <typename Dtype>
-__global__ void idct2_kernel(const int n, const Dtype* c_coeffs,
-    Dtype* all_pixels) {
-  //CUDA_KERNEL_LOOP(index, n) {
-    idct2(c_coeffs, all_pixels);
-  //}
-}
-*/
+
 template <>
-void caffe_gpu_idct2<float>(const int N, const float* c_coeffs0,
+void caffe_gpu_idct2<float>(const int N, const int npix, const int num_blocks,
+    const int block_size, const float* c_coeffs0,
     const float* c_coeffs1, float* all_pixels0, float* all_pixels1) {
   idct2_kernel<float><<<CAFFE_GET_BLOCKS(N), CAFFE_CUDA_NUM_THREADS>>>(
-      N, c_coeffs0, c_coeffs1, all_pixels0, all_pixels1);
+      N, npix, num_blocks, block_size, c_coeffs0, c_coeffs1, all_pixels0, all_pixels1);
 }
 
 template <>
-void caffe_gpu_idct2<double>(const int N, const double* c_coeffs0,
+void caffe_gpu_idct2<double>(const int N, const int npix, const int num_blocks,
+    const int block_size, const double* c_coeffs0,
     const double* c_coeffs1, double* all_pixels0, double* all_pixels1) {
   idct2_kernel<double><<<CAFFE_GET_BLOCKS(N), CAFFE_CUDA_NUM_THREADS>>>(
-      N, c_coeffs0, c_coeffs1, all_pixels0, all_pixels1);
-}
-/*
-template <>
-void caffe_gpu_idct2<float>(const int N, const float* c_coeffs,
-    float* all_pixels) {
-  idct2_kernel<float><<<CAFFE_GET_BLOCKS(N), CAFFE_CUDA_NUM_THREADS>>>(
-      N, c_coeffs, all_pixels);
+      N, npix, num_blocks, block_size, c_coeffs0, c_coeffs1, all_pixels0, all_pixels1);
 }
 
-template <>
-void caffe_gpu_idct2<double>(const int N, const double* c_coeffs,
-    double* all_pixels) {
-  idct2_kernel<double><<<CAFFE_GET_BLOCKS(N), CAFFE_CUDA_NUM_THREADS>>>(
-      N, c_coeffs, all_pixels);
-}
-*/
 template <typename Dtype>
-__global__ void didct2_kernel(const int N, Dtype* derivs) {
-  Dtype a0 = (Dtype)(sqrt(2.0 / 8.0));
-  Dtype a1 = (Dtype)(1.0 / sqrt(8.0));
-  for (int m = 0; m < 8; ++m) {
-    for (int n = 0; n < 8; ++n) {
-      int i = m * 8 + n;
-      for (int p = 0; p < 8; ++p) {
-        for (int q = 0; q < 8; ++q) {
-          int j = p * 8 + q;
+__global__ void didct2_kernel(const int N, const int npix, Dtype* derivs) {
+  const int N2 = npix*npix;
+  Dtype a0 = (Dtype)(sqrt(2.0 / (Dtype)npix));
+  Dtype a1 = (Dtype)(1.0 / sqrt((Dtype)npix));
+  for (int m = 0; m < npix; ++m) {
+    for (int n = 0; n < npix; ++n) {
+      int i = m * npix + n;
+      for (int p = 0; p < npix; ++p) {
+        for (int q = 0; q < npix; ++q) {
+          int j = p * npix + q;
           Dtype a_p = a0;
           Dtype a_q = a0;
           if (p == 0) {
@@ -353,8 +338,7 @@ __global__ void didct2_kernel(const int N, Dtype* derivs) {
           if (q == 0) {
             a_q = a1;
           }
-          derivs[i*64+j] = (Dtype)(a_p * a_q * A[i*64+j]);
-          //derivs[i*64+j] = (Dtype)(stddev[j] * a_p * a_q * A[i*64+j]);
+          derivs[i*N2+j] = (Dtype)(a_p * a_q * cos(M_PI*p*(2*m+1)/(2*npix)) * cos(M_PI*q*(2*n+1)/(2*npix)));
         }
       }
     }
@@ -362,15 +346,15 @@ __global__ void didct2_kernel(const int N, Dtype* derivs) {
 }
 
 template <>
-void caffe_gpu_get_didct2<float>(const int N, float* derivs) {
+void caffe_gpu_get_didct2<float>(const int N, const int npix, float* derivs) {
   didct2_kernel<float><<<CAFFE_GET_BLOCKS(N), CAFFE_CUDA_NUM_THREADS>>>(
-    N, derivs);
+    N, npix, derivs);
 }
 
 template <>
-void caffe_gpu_get_didct2<double>(const int N, double* derivs) {
+void caffe_gpu_get_didct2<double>(const int N, const int npix, double* derivs) {
   didct2_kernel<double><<<CAFFE_GET_BLOCKS(N), CAFFE_CUDA_NUM_THREADS>>>(
-    N, derivs);
+    N, npix, derivs);
 }
 
 template <typename Dtype>
